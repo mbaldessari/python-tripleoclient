@@ -417,7 +417,6 @@ class BuildOvercloudImage(command.Command):
             self._set_env_var(env_vars, 'FS_TYPE', 'xfs')
 
             if env_vars.get('RHOS') == '0':
-                env_vars['RDO_RELEASE'] = 'kilo'
                 dib_common_elements.extend([
                     'epel',
                     'rdo-release',
