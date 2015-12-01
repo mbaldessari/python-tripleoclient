@@ -557,3 +557,63 @@ class ShowNodeCapabilities(lister.Lister):
             capabilities = node_detail.properties.get('capabilities')
             rows.append((node.uuid, capabilities))
         return (("Node UUID", "Node Capabilities"), rows, )
+
+
+class ExportFencing(command.Command):
+    """Export fencing information"""
+
+    log = logging.getLogger(__name__ + ".ExportFencing")
+
+    def get_parser(self, prog_name):
+        parser = super(ExportFencing, self).get_parser(prog_name)
+        parser.add_argument('file_out', type=argparse.FileType('w'))
+        return parser
+
+    def _fencing_json(self):
+        bm_client = self.app.client_manager.tripleoclient.baremetal()
+
+        ports = {}
+        for port in bm_client.port.list():
+            port_detail = bm_client.port.get(port.uuid)
+            ports[port_detail.node_uuid] = (port_detail.address, port_detail.uuid)
+
+        devices = []
+        for node in bm_client.node.list():
+            node_detail = bm_client.node.get(node.uuid)
+            uuid = node_detail.uuid
+            driver = node_detail.driver
+            driver_info = node_detail.driver_info
+            dev = {}
+            # FIXME: need to check with a system where a node has multiple
+            # mac addresses
+            dev["host_mac"] = ports[uuid][0]
+            if driver == 'pxe_ssh':
+                dev["agent"] = "fence_xvm"
+                dev["params"] = {
+                    "multicast_address": "225.0.0.12",
+                    # FIXME: in theory we could use libvirt python bindings and point them
+                    # to the ssh_address IP and find out the VM name
+                    "port": "FIXME <put VM name here>",
+                }
+	    elif driver == 'pxe_ipmitool':
+                dev["agent"] = "fence_ipmilan"
+                dev["params"] = {
+                    "lanplus": "true",
+                    "login": driver_info["ipmi_username"],
+                    "passwd": driver_info["ipmi_password"],
+                    "delay": "20",
+                    "ipaddr": driver_info["ipmi_address"]
+                }
+
+            devices.append(dev)
+        return json.dumps({"devices": devices}, sort_keys=True, indent=4)
+
+    def take_action(self, parsed_args):
+        self.log.debug("take_action(%s)" % parsed_args)
+        fence_json = self._fencing_json()
+	fence_file = parsed_args.file_out
+        fence_file.write('parameters:\n')
+        fence_file.write('    EnableFencing: true\n')
+        fence_file.write('    FencingConfig:\n')
+        for line in fence_json.split('\n'):
+            fence_file.write('        %s\n' % line)
