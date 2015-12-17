@@ -557,3 +557,61 @@ class ShowNodeCapabilities(lister.Lister):
             capabilities = node_detail.properties.get('capabilities')
             rows.append((node.uuid, capabilities))
         return (("Node UUID", "Node Capabilities"), rows, )
+
+
+class ExportFencing(command.Command):
+    """Export fencing yaml template, given an instack.json"""
+
+    log = logging.getLogger(__name__ + ".ExportFencing")
+
+    def get_parser(self, prog_name):
+        parser = super(ExportFencing, self).get_parser(prog_name)
+        parser.add_argument('json_input', type=argparse.FileType("r"))
+        parser.add_argument('file_out', type=argparse.FileType("w"))
+        return parser
+
+    def _get_fencing_yaml(self, json_file):
+        json_data = json.load(json_file)
+        devices = []
+        for node in json_data["nodes"]:
+            driver = node['pm_type']
+            dev = {}
+            if len(node["mac"]) > 1:
+                msg = ("Node {0} has multiple MAC addresses"
+                       .format(node))
+                raise exceptions.InvalidConfiguration(msg)
+            dev["host_mac"] = node["mac"][0]
+            if driver == 'pxe_ssh':
+                dev["agent"] = "fence_xvm"
+                dev["params"] = {
+                    "multicast_address": "225.0.0.12",
+                    "port": "FIXME <put VM name here>",
+                }
+            elif driver == 'pxe_ipmitool':
+                dev["agent"] = "fence_ipmilan"
+                dev["params"] = {
+                    "lanplus": "true",
+                    "login": node["pm_user"],
+                    "passwd": node["pm_password"],
+                    "delay": "20",
+                    "ipaddr": node["pm_addr"]
+                }
+            else:
+                msg = ("Driver {0} is currently not supported"
+                       .format(driver))
+                raise exceptions.InvalidConfiguration(msg)
+
+            devices.append(dev)
+
+        return json.dumps({"devices": devices}, sort_keys=True, indent=4)
+
+    def take_action(self, parsed_args):
+        self.log.debug("take_action(%s)" % parsed_args)
+        json_file = parsed_args.json_input
+        fence_json = self._get_fencing_yaml(json_file)
+        fence_file = parsed_args.file_out
+        fence_file.write('parameters:\n')
+        fence_file.write('    EnableFencing: true\n')
+        fence_file.write('    FencingConfig:\n')
+        for line in fence_json.split('\n'):
+            fence_file.write('        %s\n' % line)

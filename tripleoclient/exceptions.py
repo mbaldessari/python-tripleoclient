@@ -48,3 +48,8 @@ class RootUserExecution(Exception):
 class InvalidConfiguration(ValueError):
     """Invalid parameters were specified for the deployment"""
     pass
+
+
+class InvalidFencingConfiguration(Exception):
+    """Fencing configuration is invalid"""
+    pass
